@@ -1,0 +1,22 @@
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: ms_frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - orchestrator
+
+  orchestrator:
+    build:
+      context: ./orchestrator
+      dockerfile: Dockerfile
+    container_name: ms_orchestrator
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./orchestrator/data:/app/data
+      - ./generated_services:/generated_services
+      - /var/run/docker.sock:/var/run/docker.sock

@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Plataforma web para crear, desplegar y administrar microservicios dinámicos con Docker." />
+  <title>Microservices Dashboard</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-icon">M</div>
+        <div>
+          <h1>Microservices</h1>
+          <p>Dynamic Platform</p>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav">
+        <a href="#overview" class="nav-item active">Resumen</a>
+        <a href="#create" class="nav-item">Crear servicio</a>
+        <a href="#services" class="nav-item">Servicios</a>
+      </nav>
+
+      <div class="sidebar-footer">
+        <p class="muted">Proyecto basado en Docker y microservicios dinámicos.</p>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <header class="topbar" id="overview">
+        <div>
+          <p class="eyebrow">Dashboard principal</p>
+          <h2>Plataforma de creación y administración de microservicios</h2>
+          <p class="topbar-description">
+            Crea, despliega y administra microservicios dinámicamente desde una sola interfaz web.
+          </p>
+        </div>
+
+        <div class="topbar-actions">
+          <div id="apiStatus" class="status-chip neutral">Verificando backend...</div>
+          <button id="refreshBtn" class="btn btn-secondary">Actualizar</button>
+        </div>
+      </header>
+
+      <section class="stats-grid">
+        <article class="stat-card">
+          <span class="stat-label">Total registrados</span>
+          <strong id="totalServices">0</strong>
+        </article>
+
+        <article class="stat-card">
+          <span class="stat-label">En ejecución</span>
+          <strong id="runningServices">0</strong>
+        </article>
+
+        <article class="stat-card">
+          <span class="stat-label">Detenidos</span>
+          <strong id="stoppedServices">0</strong>
+        </article>
+
+        <article class="stat-card">
+          <span class="stat-label">Solo creados</span>
+          <strong id="createdServices">0</strong>
+        </article>
+      </section>
+
+      <section class="content-grid">
+        <section class="panel create-panel" id="create">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Nuevo microservicio</p>
+              <h3>Crear servicio dinámico</h3>
+            </div>
+          </div>
+
+          <div class="examples-box">
+            <div class="field-group">
+              <label for="exampleSelect">Ejemplo rápido</label>
+              <select id="exampleSelect">
+                <option value="">Selecciona un ejemplo</option>
+                <option value="python-hello">Python - Hola Mundo</option>
+                <option value="python-sum">Python - Suma de dos valores</option>
+                <option value="node-hello">Node - Hola Mundo</option>
+                <option value="node-sum">Node - Suma de dos valores</option>
+              </select>
+            </div>
+            <button id="loadExampleBtn" class="btn btn-secondary" type="button">Cargar ejemplo</button>
+          </div>
+
+          <!-- autocomplete="off" evita que el navegador rellene campos de código con datos guardados -->
+          <form id="createForm" class="service-form" autocomplete="off" novalidate>
+            <div class="two-columns">
+              <div class="field-group">
+                <label for="name">Nombre</label>
+                <input id="name" type="text" placeholder="ej: hola-python-4" required autocomplete="off" />
+              </div>
+
+              <div class="field-group">
+                <label for="language">Lenguaje</label>
+                <select id="language" required>
+                  <option value="python">Python</option>
+                  <option value="node">Node</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="field-group">
+              <label for="description">Descripción</label>
+              <input id="description" type="text" placeholder="Describe brevemente el microservicio" required autocomplete="off" />
+            </div>
+
+            <div class="field-group">
+              <label for="sourceCode">Código fuente</label>
+              <textarea id="sourceCode" rows="18" placeholder="Pega aquí el código del microservicio" required spellcheck="false"></textarea>
+            </div>
+
+            <div class="form-actions">
+              <button type="submit" class="btn btn-primary">Crear microservicio</button>
+              <button type="button" id="clearBtn" class="btn btn-secondary">Limpiar</button>
+            </div>
+          </form>
+
+          <div id="formMessage" class="message hidden" role="alert" aria-live="polite"></div>
+        </section>
+
+        <section class="panel services-panel" id="services">
+          <div class="panel-header panel-header-space">
+            <div>
+              <p class="eyebrow">Gestión</p>
+              <h3>Microservicios registrados</h3>
+            </div>
+            <span id="totalBadge" class="badge">0 servicios</span>
+          </div>
+
+          <div id="listMessage" class="message hidden" role="alert" aria-live="polite"></div>
+
+          <div id="servicesGrid" class="services-grid">
+            <div class="empty-state">
+              <h4>Cargando servicios...</h4>
+              <p>Espera un momento mientras consultamos el backend.</p>
+            </div>
+          </div>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <!-- Modal con atributos de accesibilidad correctos -->
+  <div
+    id="detailModal"
+    class="modal hidden"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="modalTitle"
+  >
+    <div class="modal-backdrop" id="closeModalBackdrop"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <p class="eyebrow">Detalle del microservicio</p>
+          <h3 id="modalTitle">Servicio</h3>
+        </div>
+        <button id="closeModalBtn" class="modal-close" aria-label="Cerrar modal">×</button>
+      </div>
+      <pre id="modalBody" class="modal-code" tabindex="0"></pre>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
