@@ -479,3 +479,32 @@ def delete_microservice(name: str):
         "message": "Microservicio eliminado correctamente.",
         "deleted_name": service["name"]
     }
+
+  
+def calculate_service_disk_usage(name: str):
+    services = read_services()
+    service = find_service_or_404(name, services)
+
+    service_dir = os.path.join(GENERATED_SERVICES_DIR, service["name"])
+
+    if not os.path.exists(service_dir):
+        return {
+            "name": service["name"],
+            "disk_usage_bytes": 0,
+            "detail": "Directorio no encontrado."
+        }
+
+    total_size = 0
+    for root, _, files in os.walk(service_dir):
+        for file in files:
+            file_path = os.path.join(root, file)
+            try:
+                total_size += os.path.getsize(file_path)
+            except Exception:
+                continue
+
+    return {
+        "name": service["name"],
+        "disk_usage_bytes": total_size,
+        "disk_usage_kb": round(total_size / 1024, 2),
+    }
