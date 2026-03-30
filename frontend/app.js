@@ -89,7 +89,6 @@ app.listen(3000, "0.0.0.0", () => {
 const app = express();
 
 app.get("/sumar", (req, res) => {
-  // FIX: usar Number() + ?? para distinguir 0 de ausencia del parámetro
   const a = Number(req.query.a ?? 0);
   const b = Number(req.query.b ?? 0);
   res.json({ a, b, resultado: a + b });
@@ -164,9 +163,37 @@ function renderServices(items) {
     const safeStatus      = escapeHtml(service.status || "created");
     const safeUrl         = service.url ? escapeHtml(service.url) : null;
 
-    // FIX: usar data-attributes en lugar de insertar el nombre directamente en
-    // onclick="fn('...')" para evitar XSS / rotura de HTML cuando el nombre
-    // contiene comillas simples u otros caracteres especiales.
+    // El playground solo tiene sentido cuando el servicio está corriendo y tiene URL
+    const playgroundHtml = safeUrl && service.status === "running" ? `
+      <div class="playground">
+        <p class="playground-label">Probar endpoint</p>
+        <div class="playground-row">
+          <input
+            class="playground-path"
+            placeholder="Ruta  ej: /sumar"
+            data-name="${safeName}"
+            aria-label="Ruta del endpoint"
+          />
+          <select class="playground-method" data-name="${safeName}" aria-label="Método HTTP">
+            <option value="GET">GET</option>
+            <option value="POST">POST</option>
+          </select>
+        </div>
+        <input
+          class="playground-params"
+          placeholder="Parámetros  ej: a=10&amp;b=20"
+          data-name="${safeName}"
+          aria-label="Parámetros de la petición"
+        />
+        <button
+          class="btn btn-secondary playground-run"
+          data-name="${safeName}"
+          data-url="${safeUrl}"
+        >Probar</button>
+        <pre class="playground-response hidden" data-name="${safeName}" tabindex="0"></pre>
+      </div>
+    ` : "";
+
     return `
       <article class="service-card">
         <div class="service-card-header">
@@ -198,28 +225,97 @@ function renderServices(items) {
             : ""}
           <button class="btn btn-danger" data-action="delete" data-name="${safeName}">Eliminar</button>
         </div>
+
+        ${playgroundHtml}
       </article>
     `;
   }).join("");
 }
 
-// FIX: un solo listener delegado en el grid reemplaza los onclick inlineados.
-// Esto es más seguro, más eficiente y funciona aunque los nombres tengan
-// caracteres especiales.
+// ── Listener delegado del grid ───────────────────────────────────────────────
+
 servicesGrid.addEventListener("click", (event) => {
-  const btn = event.target.closest("button[data-action]");
-  if (!btn) return;
+  // Botones de acción estándar (view, stop, start, delete)
+  const actionBtn = event.target.closest("button[data-action]");
+  if (actionBtn) {
+    const name   = actionBtn.dataset.name;
+    const action = actionBtn.dataset.action;
+    if (action === "view")   viewService(name);
+    if (action === "stop")   stopService(name);
+    if (action === "start")  startService(name);
+    if (action === "delete") deleteService(name);
+    return;
+  }
 
-  // Los data-name ya fueron escapados con escapeHtml al renderizar; aquí
-  // recuperamos el valor real desde el DOM (el navegador deshace las entidades).
-  const name   = btn.dataset.name;
-  const action = btn.dataset.action;
-
-  if (action === "view")   viewService(name);
-  if (action === "stop")   stopService(name);
-  if (action === "start")  startService(name);
-  if (action === "delete") deleteService(name);
+  // Botón "Probar" del playground
+  const runBtn = event.target.closest("button.playground-run");
+  if (runBtn) {
+    runPlayground(runBtn);
+  }
 });
+
+// ── Playground ───────────────────────────────────────────────────────────────
+
+async function runPlayground(btn) {
+  const baseUrl = btn.dataset.url;
+  const card    = btn.closest("article");
+
+  const pathInput   = card.querySelector(".playground-path");
+  const paramsInput = card.querySelector(".playground-params");
+  const methodSel   = card.querySelector(".playground-method");
+  const pre         = card.querySelector(".playground-response");
+
+  const path   = pathInput.value.trim() || "/";
+  const params = paramsInput.value.trim();
+  const method = methodSel.value;
+
+  // Construye la URL: GET lleva params en query string, POST en body JSON
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  let url = `${baseUrl}${normalizedPath}`;
+  if (method === "GET" && params) url += `?${params}`;
+
+  // Muestra estado de carga
+  pre.textContent = "Llamando...";
+  pre.classList.remove("hidden", "playground-response--error");
+
+  const options = { method };
+
+  if (method === "POST" && params) {
+    // Convierte "a=10&b=20" a { a: 10, b: 20 } para mandarlo como JSON
+    const body = {};
+    params.split("&").forEach((pair) => {
+      const [rawKey, rawVal = ""] = pair.split("=");
+      const key = decodeURIComponent(rawKey.trim());
+      const val = decodeURIComponent(rawVal.trim());
+      // Convierte a número si es posible, si no deja como string
+      body[key] = val !== "" && !isNaN(val) ? Number(val) : val;
+    });
+    options.headers = { "Content-Type": "application/json" };
+    options.body    = JSON.stringify(body);
+  }
+
+  try {
+    const response = await fetch(url, options);
+
+    // Intenta parsear como JSON; si falla muestra texto plano
+    let result;
+    const contentType = response.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      result = await response.json();
+      pre.textContent = JSON.stringify(result, null, 2);
+    } else {
+      result = await response.text();
+      pre.textContent = result;
+    }
+
+    if (!response.ok) {
+      pre.classList.add("playground-response--error");
+    }
+  } catch {
+    pre.textContent = `No se pudo conectar a:\n${url}\n\nVerifica que el servicio esté corriendo.`;
+    pre.classList.add("playground-response--error");
+  }
+}
 
 // ── API calls ────────────────────────────────────────────────────────────────
 
@@ -227,7 +323,6 @@ async function checkHealth() {
   try {
     const response = await fetch(`${API_BASE}/health`);
     if (!response.ok) throw new Error("Backend no disponible");
-    // FIX: no hace falta await response.json() si no usamos el resultado
     setApiStatus("Backend conectado", "success");
   } catch {
     setApiStatus("Backend no disponible", "error");
@@ -263,13 +358,11 @@ async function createService(event) {
     sourceCode: sourceCodeInput.value
   };
 
-  // FIX: validación mínima en el cliente antes de enviar
   if (!payload.name || !payload.description || !payload.sourceCode) {
     showMessage(formMessage, "Por favor completa todos los campos.", "error");
     return;
   }
 
-  // FIX: deshabilitar el botón durante la petición para evitar doble envío
   const submitBtn = createForm.querySelector('[type="submit"]');
   submitBtn.disabled = true;
 
@@ -287,7 +380,6 @@ async function createService(event) {
       return;
     }
 
-    // FIX: limpiar mensaje de error previo y hacer reset antes de mostrar éxito
     createForm.reset();
     showMessage(formMessage, data.message || "Microservicio creado correctamente.", "success");
     await loadServices();
@@ -295,7 +387,6 @@ async function createService(event) {
   } catch {
     showMessage(formMessage, "Error de conexión con el backend.", "error");
   } finally {
-    // FIX: siempre re-habilitar el botón al terminar
     submitBtn.disabled = false;
   }
 }
@@ -310,12 +401,9 @@ async function viewService(name) {
       return;
     }
 
-    // FIX: usar textContent (no innerHTML) para que JSON con caracteres especiales
-    // se muestre literalmente sin interpretarse como HTML.
     modalTitle.textContent = data.name || name;
     modalBody.textContent  = JSON.stringify(data, null, 2);
     detailModal.classList.remove("hidden");
-    // FIX: enfocar el modal para accesibilidad con teclado
     closeModalBtn.focus();
   } catch {
     alert("Error de conexión con el backend.");
@@ -395,7 +483,6 @@ function loadSelectedExample() {
   descriptionInput.value = example.description;
   languageSelect.value   = example.language;
   sourceCodeInput.value  = example.sourceCode;
-  // FIX: limpiar mensaje residual al cargar un ejemplo
   hideMessage(formMessage);
 }
 
@@ -405,7 +492,6 @@ function closeModal() {
   detailModal.classList.add("hidden");
 }
 
-// FIX: cerrar el modal con la tecla Escape
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !detailModal.classList.contains("hidden")) {
     closeModal();

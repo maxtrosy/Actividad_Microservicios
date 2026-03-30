@@ -5,6 +5,7 @@ import json
 import os
 import re
 import socket
+import shutil
 import docker
 
 app = FastAPI(title="Microservices Orchestrator")
@@ -200,6 +201,22 @@ def run_container(service_name: str, image_tag: str, internal_port: int, host_po
         raise HTTPException(status_code=500, detail=f"Error levantando contenedor: {str(e)}")
 
 
+def find_service_or_404(name: str, services: list):
+    normalized = normalize_name(name)
+    for service in services:
+        if service["name"] == normalized:
+            return service
+    raise HTTPException(status_code=404, detail="Microservicio no encontrado.")
+
+
+def get_container_or_404(container_name: str):
+    client = get_docker_client()
+    try:
+        return client.containers.get(container_name)
+    except docker.errors.NotFound:
+        raise HTTPException(status_code=404, detail="Contenedor no encontrado.")
+
+
 @app.get("/health")
 def health():
     return {
@@ -215,6 +232,13 @@ def list_microservices():
         "total": len(services),
         "items": services
     }
+
+
+@app.get("/api/microservices/{name}")
+def get_microservice(name: str):
+    services = read_services()
+    service = find_service_or_404(name, services)
+    return service
 
 
 @app.post("/api/microservices")
@@ -281,4 +305,109 @@ def create_microservice(payload: MicroserviceCreate):
     return {
         "message": "Microservicio creado, containerizado y ejecutándose.",
         "item": new_service
+    }
+
+
+@app.post("/api/microservices/{name}/stop")
+def stop_microservice(name: str):
+    services = read_services()
+    service = find_service_or_404(name, services)
+
+    if service["status"] == "stopped":
+        return {
+            "message": "El microservicio ya estaba detenido.",
+            "item": service
+        }
+
+    container_name = service.get("container_name")
+    if not container_name:
+        raise HTTPException(status_code=400, detail="El microservicio no tiene contenedor asociado.")
+
+    container = get_container_or_404(container_name)
+
+    try:
+        container.stop()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"No se pudo detener el contenedor: {str(e)}")
+
+    service["status"] = "stopped"
+    write_services(services)
+
+    return {
+        "message": "Microservicio detenido correctamente.",
+        "item": service
+    }
+
+
+@app.post("/api/microservices/{name}/start")
+def start_microservice(name: str):
+    services = read_services()
+    service = find_service_or_404(name, services)
+
+    if service["status"] == "running":
+        return {
+            "message": "El microservicio ya estaba en ejecución.",
+            "item": service
+        }
+
+    container_name = service.get("container_name")
+    if not container_name:
+        raise HTTPException(status_code=400, detail="El microservicio no tiene contenedor asociado.")
+
+    container = get_container_or_404(container_name)
+
+    try:
+        container.start()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"No se pudo iniciar el contenedor: {str(e)}")
+
+    service["status"] = "running"
+    write_services(services)
+
+    return {
+        "message": "Microservicio iniciado correctamente.",
+        "item": service
+    }
+
+
+@app.delete("/api/microservices/{name}")
+def delete_microservice(name: str):
+    services = read_services()
+    service = find_service_or_404(name, services)
+
+    client = get_docker_client()
+
+    container_name = service.get("container_name")
+    image_tag = service.get("image_tag")
+
+    if container_name:
+        try:
+            container = client.containers.get(container_name)
+            container.remove(force=True)
+        except docker.errors.NotFound:
+            pass
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"No se pudo eliminar el contenedor: {str(e)}")
+
+    if image_tag:
+        try:
+            client.images.remove(image=image_tag, force=True)
+        except docker.errors.ImageNotFound:
+            pass
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"No se pudo eliminar la imagen: {str(e)}")
+
+    local_service_dir = os.path.join(GENERATED_SERVICES_DIR, service["name"])
+    if os.path.exists(local_service_dir):
+        try:
+            shutil.rmtree(local_service_dir)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"No se pudo eliminar la carpeta del microservicio: {str(e)}")
+
+    updated_services = [item for item in services if item["name"] != service["name"]]
+    write_services(updated_services)
+
+    return {
+        "message": "Microservicio eliminado correctamente.",
+        "deleted_name": service["name"]
     }
