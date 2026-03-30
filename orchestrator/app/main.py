@@ -104,7 +104,7 @@ CMD ["node", "app.js"]
 
 
 def get_python_requirements() -> str:
-    return "flask==3.0.3\n"
+    return "flask==3.0.3\nflask-cors==4.0.1\n"
 
 
 def get_node_package_json(service_name: str) -> str:
@@ -117,6 +117,70 @@ def get_node_package_json(service_name: str) -> str:
         }
     }
     return json.dumps(data, indent=2, ensure_ascii=False)
+
+
+def patch_python_flask_cors(source_code: str) -> str:
+    patched = source_code
+
+    has_flask = (
+        "from flask import" in patched
+        or "import flask" in patched.lower()
+        or "Flask(" in patched
+    )
+
+    if not has_flask:
+        return patched
+
+    if "from flask_cors import CORS" not in patched:
+        if "from flask import Flask, request, jsonify" in patched:
+            patched = patched.replace(
+                "from flask import Flask, request, jsonify",
+                "from flask import Flask, request, jsonify\nfrom flask_cors import CORS",
+                1
+            )
+        elif "from flask import Flask, jsonify, request" in patched:
+            patched = patched.replace(
+                "from flask import Flask, jsonify, request",
+                "from flask import Flask, jsonify, request\nfrom flask_cors import CORS",
+                1
+            )
+        elif "from flask import Flask, request" in patched:
+            patched = patched.replace(
+                "from flask import Flask, request",
+                "from flask import Flask, request\nfrom flask_cors import CORS",
+                1
+            )
+        elif "from flask import Flask, jsonify" in patched:
+            patched = patched.replace(
+                "from flask import Flask, jsonify",
+                "from flask import Flask, jsonify\nfrom flask_cors import CORS",
+                1
+            )
+        elif "from flask import Flask" in patched:
+            patched = patched.replace(
+                "from flask import Flask",
+                "from flask import Flask\nfrom flask_cors import CORS",
+                1
+            )
+        else:
+            patched = "from flask_cors import CORS\n" + patched
+
+    cors_line = 'CORS(app, resources={r"/*": {"origins": "*"}})'
+
+    if "app = Flask(__name__)" in patched and "CORS(app" not in patched:
+        patched = patched.replace(
+            "app = Flask(__name__)",
+            f'app = Flask(__name__)\n{cors_line}',
+            1
+        )
+    elif "Flask(__name__)" in patched and "CORS(app" not in patched:
+        patched = patched.replace(
+            "Flask(__name__)",
+            f'Flask(__name__)\n{cors_line}',
+            1
+        )
+
+    return patched
 
 
 def generate_runtime_files(service_dir: str, language: str, service_name: str):
@@ -272,8 +336,12 @@ def create_microservice(payload: MicroserviceCreate):
     filename = get_service_filename(language)
     source_file_path = os.path.join(service_dir, filename)
 
+    source_code = payload.sourceCode
+    if language == "python":
+        source_code = patch_python_flask_cors(source_code)
+
     with open(source_file_path, "w", encoding="utf-8") as f:
-        f.write(payload.sourceCode)
+        f.write(source_code)
 
     generate_runtime_files(service_dir, language, name)
 

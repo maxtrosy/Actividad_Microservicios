@@ -1,3 +1,5 @@
+console.log("APP JS NUEVO CARGADO");
+
 const API_BASE = "http://localhost:8000";
 
 const createForm = document.getElementById("createForm");
@@ -157,14 +159,15 @@ function renderServices(items) {
   }
 
   servicesGrid.innerHTML = items.map((service) => {
-    const safeName        = escapeHtml(service.name);
+    const safeName = escapeHtml(service.name);
     const safeDescription = escapeHtml(service.description || "Sin descripción");
-    const safeLanguage    = escapeHtml(service.language || "-");
-    const safeStatus      = escapeHtml(service.status || "created");
-    const safeUrl         = service.url ? escapeHtml(service.url) : null;
+    const safeLanguage = escapeHtml(service.language || "-");
+    const safeStatus = escapeHtml(service.status || "created");
 
-    // El playground solo tiene sentido cuando el servicio está corriendo y tiene URL
-    const playgroundHtml = safeUrl && service.status === "running" ? `
+    const rawUrl = service.url || "";
+    const safeUrl = rawUrl ? escapeHtml(rawUrl) : null;
+
+    const playgroundHtml = rawUrl && service.status === "running" ? `
       <div class="playground">
         <p class="playground-label">Probar endpoint</p>
         <div class="playground-row">
@@ -186,9 +189,10 @@ function renderServices(items) {
           aria-label="Parámetros de la petición"
         />
         <button
+          type="button"
           class="btn btn-secondary playground-run"
           data-name="${safeName}"
-          data-url="${safeUrl}"
+          data-url="${rawUrl}"
         >Probar</button>
         <pre class="playground-response hidden" data-name="${safeName}" tabindex="0"></pre>
       </div>
@@ -216,14 +220,14 @@ function renderServices(items) {
         </div>
 
         <div class="service-actions">
-          <button class="btn btn-secondary" data-action="view" data-name="${safeName}">Ver detalle</button>
+          <button type="button" class="btn btn-secondary" data-action="view" data-name="${safeName}">Ver detalle</button>
           ${service.status === "running"
-            ? `<button class="btn btn-secondary" data-action="stop" data-name="${safeName}">Detener</button>`
+            ? `<button type="button" class="btn btn-secondary" data-action="stop" data-name="${safeName}">Detener</button>`
             : ""}
           ${service.status === "stopped"
-            ? `<button class="btn btn-primary" data-action="start" data-name="${safeName}">Iniciar</button>`
+            ? `<button type="button" class="btn btn-primary" data-action="start" data-name="${safeName}">Iniciar</button>`
             : ""}
-          <button class="btn btn-danger" data-action="delete" data-name="${safeName}">Eliminar</button>
+          <button type="button" class="btn btn-danger" data-action="delete" data-name="${safeName}">Eliminar</button>
         </div>
 
         ${playgroundHtml}
@@ -235,19 +239,18 @@ function renderServices(items) {
 // ── Listener delegado del grid ───────────────────────────────────────────────
 
 servicesGrid.addEventListener("click", (event) => {
-  // Botones de acción estándar (view, stop, start, delete)
   const actionBtn = event.target.closest("button[data-action]");
   if (actionBtn) {
-    const name   = actionBtn.dataset.name;
+    const name = actionBtn.dataset.name;
     const action = actionBtn.dataset.action;
-    if (action === "view")   viewService(name);
-    if (action === "stop")   stopService(name);
-    if (action === "start")  startService(name);
+
+    if (action === "view") viewService(name);
+    if (action === "stop") stopService(name);
+    if (action === "start") startService(name);
     if (action === "delete") deleteService(name);
     return;
   }
 
-  // Botón "Probar" del playground
   const runBtn = event.target.closest("button.playground-run");
   if (runBtn) {
     runPlayground(runBtn);
@@ -258,61 +261,70 @@ servicesGrid.addEventListener("click", (event) => {
 
 async function runPlayground(btn) {
   const baseUrl = btn.dataset.url;
-  const card    = btn.closest("article");
+  const card = btn.closest("article");
 
-  const pathInput   = card.querySelector(".playground-path");
+  const pathInput = card.querySelector(".playground-path");
   const paramsInput = card.querySelector(".playground-params");
-  const methodSel   = card.querySelector(".playground-method");
-  const pre         = card.querySelector(".playground-response");
+  const methodSel = card.querySelector(".playground-method");
+  const pre = card.querySelector(".playground-response");
 
-  const path   = pathInput.value.trim() || "/";
+  if (!baseUrl) {
+    pre.textContent = "Este servicio no tiene URL disponible.";
+    pre.classList.remove("hidden");
+    pre.classList.add("playground-response--error");
+    return;
+  }
+
+  const path = pathInput.value.trim() || "/";
   const params = paramsInput.value.trim();
   const method = methodSel.value;
 
-  // Construye la URL: GET lleva params en query string, POST en body JSON
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  const queryParams = new URLSearchParams(params);
   let url = `${baseUrl}${normalizedPath}`;
-  if (method === "GET" && params) url += `?${params}`;
 
-  // Muestra estado de carga
+  if (method === "GET" && params) {
+    url += `?${queryParams.toString()}`;
+  }
+
   pre.textContent = "Llamando...";
   pre.classList.remove("hidden", "playground-response--error");
 
   const options = { method };
 
-  if (method === "POST" && params) {
-    // Convierte "a=10&b=20" a { a: 10, b: 20 } para mandarlo como JSON
+  if (method === "POST") {
     const body = {};
-    params.split("&").forEach((pair) => {
-      const [rawKey, rawVal = ""] = pair.split("=");
-      const key = decodeURIComponent(rawKey.trim());
-      const val = decodeURIComponent(rawVal.trim());
-      // Convierte a número si es posible, si no deja como string
-      body[key] = val !== "" && !isNaN(val) ? Number(val) : val;
-    });
+    for (const [key, value] of queryParams.entries()) {
+      body[key] = value !== "" && !isNaN(value) ? Number(value) : value;
+    }
     options.headers = { "Content-Type": "application/json" };
-    options.body    = JSON.stringify(body);
+    options.body = JSON.stringify(body);
   }
 
   try {
     const response = await fetch(url, options);
-
-    // Intenta parsear como JSON; si falla muestra texto plano
-    let result;
+    const responseText = await response.text();
     const contentType = response.headers.get("content-type") || "";
-    if (contentType.includes("application/json")) {
-      result = await response.json();
-      pre.textContent = JSON.stringify(result, null, 2);
-    } else {
-      result = await response.text();
-      pre.textContent = result;
+
+    let output = responseText;
+
+    if (contentType.includes("application/json") && responseText) {
+      try {
+        output = JSON.stringify(JSON.parse(responseText), null, 2);
+      } catch (jsonError) {
+        console.error("Error parseando JSON:", jsonError);
+        output = responseText;
+      }
     }
+
+    pre.textContent = `Status: ${response.status} ${response.statusText}\n\n${output || "Sin contenido"}`;
 
     if (!response.ok) {
       pre.classList.add("playground-response--error");
     }
-  } catch {
-    pre.textContent = `No se pudo conectar a:\n${url}\n\nVerifica que el servicio esté corriendo.`;
+  } catch (error) {
+    console.error("Error al probar endpoint:", error);
+    pre.textContent = `Error al llamar:\n${url}\n\n${error?.message || "Error desconocido"}`;
     pre.classList.add("playground-response--error");
   }
 }
@@ -402,7 +414,7 @@ async function viewService(name) {
     }
 
     modalTitle.textContent = data.name || name;
-    modalBody.textContent  = JSON.stringify(data, null, 2);
+    modalBody.textContent = JSON.stringify(data, null, 2);
     detailModal.classList.remove("hidden");
     closeModalBtn.focus();
   } catch {
@@ -479,10 +491,10 @@ function loadSelectedExample() {
   if (!selected || !examples[selected]) return;
 
   const example = examples[selected];
-  nameInput.value        = example.name;
+  nameInput.value = example.name;
   descriptionInput.value = example.description;
-  languageSelect.value   = example.language;
-  sourceCodeInput.value  = example.sourceCode;
+  languageSelect.value = example.language;
+  sourceCodeInput.value = example.sourceCode;
   hideMessage(formMessage);
 }
 
