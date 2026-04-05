@@ -141,8 +141,8 @@ Usuario pega código  →  POST /api/microservices
 ### Clonar y levantar la plataforma
 
 ```bash
-git clone https://github.com/tu-usuario/microservices-platform.git
-cd microservices-platform
+git clone https://github.com/maxtrosy/Actividad_Microservicios.git
+cd Actividad_Microservicios
 docker compose up -d --build
 ```
 
