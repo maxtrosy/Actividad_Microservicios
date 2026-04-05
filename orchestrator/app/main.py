@@ -183,6 +183,45 @@ def patch_python_flask_cors(source_code: str) -> str:
     return patched
 
 
+def patch_node_cors(source_code: str) -> str:
+    patched = source_code
+
+    has_express = (
+        "require('express')" in patched
+        or 'require("express")' in patched
+    )
+
+    if not has_express:
+        return patched
+
+    if "Access-Control-Allow-Origin" in patched:
+        return patched
+
+    cors_middleware = (
+        "\napp.use((req, res, next) => {\n"
+        '  res.header("Access-Control-Allow-Origin", "*");\n'
+        '  res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");\n'
+        '  res.header("Access-Control-Allow-Headers", "Content-Type");\n'
+        "  next();\n"
+        "});\n"
+    )
+
+    if "const app = express();" in patched:
+        patched = patched.replace(
+            "const app = express();",
+            f"const app = express();{cors_middleware}",
+            1
+        )
+    elif "const app = express()" in patched:
+        patched = patched.replace(
+            "const app = express()",
+            f"const app = express(){cors_middleware}",
+            1
+        )
+
+    return patched
+
+
 def generate_runtime_files(service_dir: str, language: str, service_name: str):
     dockerfile_path = os.path.join(service_dir, "Dockerfile")
 
@@ -339,6 +378,8 @@ def create_microservice(payload: MicroserviceCreate):
     source_code = payload.sourceCode
     if language == "python":
         source_code = patch_python_flask_cors(source_code)
+    elif language == "node":
+        source_code = patch_node_cors(source_code)
 
     with open(source_file_path, "w", encoding="utf-8") as f:
         f.write(source_code)

@@ -1,18 +1,1 @@
-[
-  {
-    "name": "suma-python-demo",
-    "description": "Microservicio para sumar dos valores en python",
-    "language": "python",
-    "status": "running",
-    "source_file": "app.py",
-    "service_dir": "/generated_services/suma-python-demo",
-    "dockerfile": "Dockerfile",
-    "runtime_file": "requirements.txt",
-    "internal_port": 5000,
-    "host_port": 8100,
-    "image_tag": "ms-suma-python-demo:latest",
-    "container_name": "ms-suma-python-demo",
-    "container_id": "8f2a820b760b7a683540b76c49895768e410b3d980e102a9dc3b3eb1c4b784b3",
-    "url": "http://localhost:8100"
-  }
-]
+[]
