@@ -45,6 +45,9 @@ Además, para los microservicios Python basados en Flask, el orquestador agrega 
 - Playground de pruebas HTTP integrado en el frontend
 
 ---
+## Video de Demostración
+
+[![Demo en YouTube](https://img.youtube.com/vi/U5874SEJfsY/0.jpg)](https://youtu.be/U5874SEJfsY)
 
 ## Diagrama de Arquitectura
 
